@@ -3,8 +3,8 @@ FROM manimcommunity/manim:stable
 # Switch to root to install dependencies and system tools
 USER root
 
-# Install FastAPI, Uvicorn for the server, and clean up cache
-RUN pip install --no-cache-dir fastapi uvicorn pydantic
+# Install FastAPI, Uvicorn, and python-multipart
+RUN pip install --no-cache-dir fastapi uvicorn pydantic python-multipart
 
 # Create and set the working directory
 WORKDIR /app
