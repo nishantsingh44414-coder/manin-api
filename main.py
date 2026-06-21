@@ -2,8 +2,8 @@ import os
 import subprocess
 import uuid
 import requests
-from fastapi import FastAPI, Form, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Form
+from fastapi.responses import FileResponse, JSONResponse
 from moviepy.editor import VideoFileClip, AudioFileClip
 
 app = FastAPI(title="Manim Video API")
@@ -23,25 +23,28 @@ async def render_video(
     final_path = f"{OUTPUT_DIR}/{job_id}_final.mp4"
 
     try:
-        # 1. Claude ka code save kar
+        # 1. Manim code save - Class naam GeneratedScene hona chahiye
         with open(manim_file, "w") as f:
             f.write(code)
 
-        # 2. 11labs audio download
+        # 2. Audio download 11labs se
         audio_resp = requests.get(audio_url, timeout=30)
+        audio_resp.raise_for_status()
         with open(audio_path, 'wb') as f:
             f.write(audio_resp.content)
 
-        # 3. Manim render -ql = low quality, fast
+        # 3. Manim render -ql = low quality, fast render
         cmd = ["manim", "-ql", "--media_dir", "/tmp/media", manim_file, "GeneratedScene"]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=240)
-        
-        if result.returncode != 0:
-            return {"error": "Manim failed", "log": result.stderr}
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
-        # 4. Video file dhund
+        if result.returncode!= 0:
+            return JSONResponse(status_code=500, content={"error": "Manim failed", "log": result.stderr})
+
+        # 4. Video file ka path
         rendered_video = f"/tmp/media/videos/{job_id}/480p15/GeneratedScene.mp4"
-        
+        if not os.path.exists(rendered_video):
+            return JSONResponse(status_code=500, content={"error": "Video not found after render"})
+
         # 5. Audio + Video merge
         video_clip = VideoFileClip(rendered_video)
         audio_clip = AudioFileClip(audio_path)
@@ -51,7 +54,7 @@ async def render_video(
         return FileResponse(final_path, media_type="video/mp4", filename="video.mp4")
 
     except Exception as e:
-        return {"error": str(e)}
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.get("/")
 def read_root():
