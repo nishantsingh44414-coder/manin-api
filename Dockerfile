@@ -1,13 +1,12 @@
 FROM manimcommunity/manim:stable
 
-USER root
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt.
+RUN pip install --no-cache-dir -r requirements.txt
 
-RUN python3 -m pip install --upgrade pip --no-cache-dir \
-    && python3 -m pip install --no-cache-dir fastapi uvicorn[standard] pydantic python-multipart moviepy requests
+COPY ..
 
-COPY  /app
+ENV PORT=8000
 
-CMD python3 -m uvicorn main:app --host 0.0.0.0 --port ${PORT}
+CMD uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
