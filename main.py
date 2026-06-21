@@ -1,14 +1,13 @@
 import os
 import subprocess
-import shutil
-from fastapi import FastAPI, UploadFile, Form, HTTPException
+import uuid
+import requests
+from fastapi import FastAPI, Form, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from moviepy.editor import VideoFileClip, AudioFileClip
 
 app = FastAPI(title="Manim Video Generation API")
-
-# Folder setup
-OUTPUT_DIR = "output"
+OUTPUT_DIR = "/tmp/output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 @app.post("/render")
@@ -18,24 +17,43 @@ async def render_video(
     audio_url: str = Form(...)
 ):
     try:
-        # 1. Manim Code ko file mein save karein
-        manim_file = "scene.py"
+        job_id = str(uuid.uuid4())
+        manim_file = f"/tmp/{job_id}.py"
+        video_path = f"{OUTPUT_DIR}/{job_id}_video.mp4"
+        audio_path = f"/tmp/{job_id}_audio.mp3"
+        final_path = f"{OUTPUT_DIR}/{job_id}_final.mp4"
+
+        # 1. Manim code save kar - Class naam GeneratedScene hona chahiye
         with open(manim_file, "w") as f:
             f.write(code)
 
-        # 2. Manim se video render karein (command execute karein)
-        # Note: Render server par Manim installed hona chahiye
-        cmd = ["manim", "-pql", manim_file, "MyScene"] 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        # 2. Audio download kar 11labs se
+        audio_resp = requests.get(audio_url)
+        with open(audio_path, 'wb') as f:
+            f.write(audio_resp.content)
+
+        # 3. Manim render -ql = low quality, fast. 1080p baad me karna
+        cmd = ["manim", "-ql", "--media_dir", "/tmp/media", manim_file, "GeneratedScene"]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=240)
         
         if result.returncode != 0:
-            raise HTTPException(status_code=500, detail=result.stderr)
+            raise HTTPException(status_code=500, detail=f"Manim Error: {result.stderr}")
 
-        # 3. Yahan logic add karein jo audio_url download karke video ke sath merge kare (moviepy use karein)
-        # Filhal ke liye hum seedha response bhej rahe hain
-        
-        return {"status": "success", "message": "Video rendered successfully"}
+        # 4. Rendered video ka path dhund
+        rendered_video = f"/tmp/media/videos/{job_id}/480p15/GeneratedScene.mp4"
+        if not os.path.exists(rendered_video):
+            raise HTTPException(status_code=500, detail="Video file not found after render")
 
+        # 5. Audio + Video merge kar moviepy se
+        video_clip = VideoFileClip(rendered_video)
+        audio_clip = AudioFileClip(audio_path)
+        final_clip = video_clip.set_audio(audio_clip)
+        final_clip.write_videofile(final_path, codec="libx264", audio_codec="aac", verbose=False, logger=None)
+
+        return FileResponse(final_path, media_type="video/mp4", filename="video.mp4")
+
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Render timeout. Use -ql flag or upgrade Render plan")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
